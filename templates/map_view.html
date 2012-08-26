@@ -1,0 +1,491 @@
+{% extends "base.html"  %}
+
+{% block extrastyle %}
+
+<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+<link href="/stylesheets/jquery.treeTable.css" rel="stylesheet" type="text/css" />
+<script type="text/javascript" src="/javascripts/jquery.treeTable.js"></script>
+<script type="text/javascript" src="https://maps.google.com/maps/api/js?libraries=geometry&sensor=false"></script>
+<script type="text/javascript">
+    var map;
+    var infoWindow;
+    var polygonCornfield=[];
+
+    function initialize() {
+        $('#map_canvas').css('width', $('#map_canvas').width()-360 ).css('height', $('#map_canvas').height()-100);
+        var polygon_coordinates = {{ points|safe }};
+        /*Опции для карты */
+        var first_point = '{{first_point}}'
+        if(first_point.length > 0){
+            var latlng = new google.maps.LatLng(first_point.split(",")[0], first_point.split(",")[1]);
+        } else {
+            var latlng = new google.maps.LatLng(48.512954, 2.173969);
+        }
+
+        var myOptions = {
+               zoom: 15,
+               center: latlng,
+               panControl: false,
+               zoomControl: true,
+               mapTypeControl: true,
+               scaleControl: false,
+               streetViewControl: false,
+               overviewMapControl: false,
+               mapTypeId: google.maps.MapTypeId.SATELLITE
+        };
+        var st_Options = {
+              zoom: 11,
+              center: latlng,
+              panControl: false,
+              zoomControl: false,
+              mapTypeControl: false,
+              scaleControl: false,
+              streetViewControl: false,
+              overviewMapControl: false,
+              disableDoubleClickZoom: true,
+              scrollwheel: false,
+              mapTypeId: google.maps.MapTypeId.SATELLITE
+        };
+        map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+        var map_st = new google.maps.Map(document.getElementById("map_canvas_static"), st_Options);
+        var latlngbounds = new google.maps.LatLngBounds();
+        var path_for_static_map='';
+        var polygonCornfield_full=[];
+        var attribute_polygons = "{{ attribute_poly }}".split(";");
+        if(polygon_coordinates.length >0){
+            for (var i=0; i<polygon_coordinates.length; i++ ){
+                  var path_polygon_coordinates = google.maps.geometry.encoding.decodePath(polygon_coordinates[i][0])
+                  var attribute_polygon = attribute_polygons[i].split(",");
+                  /*Добавление полигонов на карту*/
+                  polygonCornfield.push( new google.maps.Polygon({
+                            paths: path_polygon_coordinates,
+                            levels: decodeLevels(polygon_coordinates[i][1]),
+                            strokeColor: attribute_polygon[0],
+                            strokeOpacity: 0.8,
+                            strokeWeight: 3,
+                            fillColor: attribute_polygon[0],
+                            fillOpacity: 0.35,
+                            name: attribute_polygon[1],
+                            area: attribute_polygon[2],
+                            agriculture: attribute_polygon[3],
+                            pk: attribute_polygon[4]
+                  }));
+
+                  polygonCornfield[i].setMap(map);
+                  var polygonCornfield_forStaticMap = new google.maps.Polygon({
+                              paths: google.maps.geometry.encoding.decodePath(polygon_coordinates[i][0]),
+                              levels:decodeLevels(polygon_coordinates[i][1]),
+                              strokeColor: attribute_polygon[0],
+                              strokeOpacity: 0.8,
+                              strokeWeight: 3,
+                              fillColor: attribute_polygon[0],
+                              fillOpacity: 0.35
+                  });
+                  polygonCornfield_forStaticMap.setMap(map_st);
+                  /*Полный охват полигонов для статической карты*/
+                  for ( var p = 0; p < polygonCornfield[i].getPath().length; p++ ) {
+                      latlngbounds.extend(polygonCornfield[i].getPath().getAt(p));
+                  }
+                  google.maps.event.addListener(polygonCornfield[i], 'click', showArrays);
+            }
+        } else {
+            latlngbounds.extend(latlng-11);
+        }
+
+
+
+
+
+
+
+
+
+
+        infoWindow = new google.maps.InfoWindow();
+        google.maps.event.addListenerOnce(map, 'idle', function(){
+            map_st.fitBounds( latlngbounds );
+            /*Отображение полигонов на большой карте по клику на маленькой*/
+            $("#map_canvas_static").click(function(e) {
+                  var B = map_st.getBounds().getNorthEast().lat();
+                  var L = map_st.getBounds().getSouthWest().lng();
+                  var Hscale = (B - map_st.getBounds().getSouthWest().lat())/$('#map_canvas_static').height();
+                  var Wscale = (map_st.getBounds().getNorthEast().lng() - L)/$('#map_canvas_static').width();
+                  var X =  e.pageX - $('#map_canvas_static').offset().left;
+                  var Y =  e.pageY - $('#map_canvas_static').offset().top;
+                  var point = new google.maps.LatLng(B - Hscale*Y, L + Wscale*X);
+                  map.setCenter(point);
+                  map.setZoom(13);
+            });
+        });
+        /*Формирование таблицы по агрокультурам*/
+        var attribute_table = [];
+        for (var i=0; i<attribute_polygons.length; i++){
+            var temp = false;
+            var attribute_polygon = attribute_polygons[i].split(",");
+            if (attribute_table.length > 0){
+                for (var k=0; k<attribute_table.length;k++){
+                    if (attribute_table[k].indexOf(attribute_polygon[3]) >= 0){
+                        if (attribute_table[k][1] == attribute_polygon[3]){
+                            attribute_table[k][2] = parseFloat(attribute_table[k][2]) + parseFloat(attribute_polygon[2]);
+                            attribute_table[k][3] += 1;
+                            temp = true;
+                        }
+                        break;
+                    }
+                }
+                if (!temp){
+                    attribute_table.push([attribute_polygon[0], attribute_polygon[3], attribute_polygon[2], 1 ]);
+                }
+            } else {
+                attribute_table.push([attribute_polygon[0], attribute_polygon[3], attribute_polygon[2], 1 ]);
+            }
+        }
+        /*Создание таблицы в DOM*/
+        var table_td = '';
+        for (var i=0; i<attribute_table.length; i++){
+            table_td += "<tr class='parent' id='record" + i +"'>";
+            table_td += "<td><div class = 'color-rectangle' style='background-color:" + attribute_table[i][0] + "; width: 30px; height: 20px; '></div></td>";
+            table_td += "<td>" + attribute_table[i][1] + "</td>";
+            table_td += "<td>" + Math.round(parseFloat(attribute_table[i][2])*100)/100 + "</td>";
+            table_td += "<td>" + attribute_table[i][3] + "</td>";
+            table_td += "</tr>";
+            for (var j=0; j<attribute_polygons.length; j++){
+                var attribute_polygon = attribute_polygons[j].split(",");
+                if (attribute_polygon.indexOf(attribute_table[i][1]) >= 0){
+                    table_td += "<tr  class='child-of-record" + i +"' id = 'record " + attribute_polygon[4] + "' onclick='show_polygon(this)' >";
+                    table_td += "<td></td>";
+                    table_td += "<td>" + attribute_polygon[3] + "</td>";
+                    table_td += "<td>" + attribute_polygon[2] + "</td>";
+                    table_td += "<td></td>";
+                    table_td += "</tr>";
+                }
+            }
+        }
+        $('.crop-table').append(table_td);
+        $('.crop-table').treeTable();
+        /*Выделение строки в боковой таблице при нажатии*/
+        $("table#crop tr").not("[class^='parent']").mousedown(function() {
+            $("tr.selected").removeClass("selected"); // Deselect currently selected rows
+            $(this).addClass("selected");
+        });
+        /*Закрытие всех веток в дереве боковой таблицы*/
+        $("table#crop tr[class^='parent']").mousedown(function() {
+            $("table#crop").collapseAll();
+            $(this).expand();
+        });
+
+
+    }
+
+    /*Отображение полигона по клику в таблице агрокультур*/
+    function show_polygon(e){
+        for (var i=0; i<polygonCornfield.length; i++){
+            if (e.id.split(" ")[1] == polygonCornfield[i].get("pk")){
+                  var polygon_center = GetCentroid(polygonCornfield[i].getPath());
+                  map.setCenter(polygon_center);
+                  var contentString = "<b>Поле</b><br />";
+                  contentString += "<p>" + polygonCornfield[i].get("agriculture") + ": площадь - " + polygonCornfield[i].get("area") + " га</p>";
+                  var pk = polygonCornfield[i].get('pk');
+                  contentString += "<p><form action='/show_history/" + pk + "/' method='post' id='history_crop'>{% csrf_token %}" +
+                              "<input type='submit' value='История' onclick='submit_function()'></form></p>";
+                  contentString += "<p><form action='/add_history/" + pk + "/' method='post' id='add_history_crop'>{% csrf_token %}" +
+                        "<input type='submit' value='Добавить информацию' onclick='show_form_history_add()'></form></p>";
+                  infoWindow.setContent(contentString);
+                  infoWindow.setPosition(polygon_center);
+                  infoWindow.open(map);
+                  infoWindow = google.maps.InfoWindow();
+                  break;
+            }
+        }
+    }
+    /*Функция для запроса истории по полю*/
+    function submit_function(){
+        $('form#history_crop').submit(function(e){
+            e.preventDefault();
+            var review_form = jQuery(e.target);
+            jQuery.ajax({
+                url: review_form.attr('action'),
+                type: review_form.attr('method'),
+                data: "pk=" + review_form.attr('id'),
+                dataType: 'json',
+                success: function(json){
+                    $('table.table-history tr:not(:first)').remove();
+                    for(var i=0; i<json.length; i++){
+                        var record = json[i].split(",");
+                        var NewRow = '<tr><td>' + record[0] + '</td><td>' + record[1] + '</td><td>'  + record[2] + '</td><td>' +  + record[3] + '</td><td>' +  + record[4] + '</td></tr>';
+                        $('table.table-history tr:last').after(NewRow);
+                    }
+                    $('.table-history').slideDown('slow');
+                },
+                error: function(xhr, ajaxOptions, thrownError){
+                    alert(thrownError);
+                }
+            });
+        });
+    }
+
+    /*Определение центроида полигона*/
+    function GetCentroid(paths){
+          var f;
+          var x = 0;
+          var y = 0;
+          var nPts = paths.length;
+          var j = nPts-1;
+          var area = 0;
+          for (var i = 0; i < nPts; j=i++) {
+              var pt1 = paths.getAt(i);
+              var pt2 = paths.getAt(j);
+              f = pt1.lat() * pt2.lng() - pt2.lat() * pt1.lng();
+              x += (pt1.lat() + pt2.lat()) * f;
+              y += (pt1.lng() + pt2.lng()) * f;
+              area += pt1.lat() * pt2.lng();
+              area -= pt1.lng() * pt2.lat();
+          }
+          area /= 2;
+          f = area * 6;
+          return new google.maps.LatLng(x/f, y/f);
+    }
+
+    /*Информационное окошко*/
+    function showArrays(event) {
+        var contentString = "<b>Поле</b><br />";
+        contentString += "<p>" + this.get("agriculture") + ": площадь - " + this.get("area") + " га</p>";
+        var pk = this.get('pk');
+        contentString += "<p><form action='/show_history/" + pk + "/' method='post' id='history_crop'>{% csrf_token %}" +
+                "<input type='submit' value='История' onclick='submit_function()'></form></p>";
+        contentString += "<p><input type='submit' value='Добавить информацию' name='" + pk + "' onclick='show_form_history_add(" + pk + ")'></p>";
+        infoWindow.setContent(contentString);
+        infoWindow.setPosition(event.latLng);
+        infoWindow.open(map);
+    }
+
+    function decodeLevels(encodedLevelsString) {
+        var decodedLevels = [];
+        for (var i = 0; i < encodedLevelsString.length; ++i) {
+            var level = encodedLevelsString.charCodeAt(i) - 63;
+            decodedLevels.push(level);
+        }
+        return decodedLevels;
+    }
+
+    /*Добавление и изменение данных в истории, агрокультурах и удобрениях*/
+    function append_data(e){
+        e.preventDefault();
+        var review_form = jQuery(e.target);
+        jQuery.ajax({
+            url: review_form.attr('action'),
+            type: review_form.attr('method'),
+            data: review_form.serialize()+'&change=""',
+            dataType: 'json',
+            success: function(json){
+                if(json.success == 'True'){
+                    if (json.change == 'True'){
+                        var answer = confirm ("Такая запись уже существует. Вы хотите заменить ее?")
+                        if(answer){
+                            jQuery.ajax({
+                                url: review_form.attr('action'),
+                                type: review_form.attr('method'),
+                                data: review_form.serialize()+'&change="True"',
+                                dataType: 'json',
+                                success: function(json){
+                                    if(json.name_history){
+                                        change_color(review_form, json);
+                                    }
+                                    alert("Запись сохранена");
+                                    return true;
+                                },
+                                error: function(xhr, ajaxOptions, thrownError){
+                                    alert(thrownError);
+                                }
+                            });
+                        }else{
+                            return
+                        }
+                    }
+                    if(json.name_agriculture){
+                        $('#id_agriculture_name').append('<option value="' + $('#id_agriculture_name option').length + '">' + json.name_agriculture + '</option>');
+                        $('#add_agriculture_crop').find('.error').remove();
+                        alert("Запись сохранена");
+                    }
+                    if(json.name_manure){
+                        $('#id_manure').append('<option value="' + $('#id_manure option').length  + '">' + json.name_manure + '</option>');
+                        $('#add_manure_crop').find('.error').remove();
+                        alert("Запись сохранена");
+                    }
+                    if(json.name_history){
+                        /*Замена цвета полигона*/
+                        change_color(review_form, json);
+                        alert("Запись сохранена");
+                    }
+                }else if(json.success == 'False'){
+                        if(json.name_agriculture){
+                            object_error = $('#add_agriculture_crop')
+                        }
+                        if(json.name_manure){
+                            object_error = $('#add_manure_crop')
+                        }
+                        if(json.name_history){
+                            object_error = $('#add_history_crop')
+                        }
+
+
+                        object_error.find('.error').remove();
+                        var errors = json.response;
+                        for (var k in errors) {
+                            object_error.find('[name=' + k + ']').after('<div class="error">' + errors[k] + '</div>');
+                        }
+                }else{
+                    alert("errors");
+                }
+            },
+            error: function(xhr, ajaxOptions, thrownError){
+                alert(thrownError);
+            }
+        });
+    }
+
+
+     /*Замена цвета полигона*/
+    function change_color(review_form, json){
+        var today = (new Date).getFullYear();
+        if (today == review_form.find('[name=year]').val()){
+            var i= review_form.find('[name=cornfield] option:selected').val();
+            var j = 0;
+            $.each(polygonCornfield, function(index){
+                if (polygonCornfield[index].get("pk") == ""+i){
+                    j = index;
+                    return false;
+                }
+            });
+            polygonCornfield[j].setOptions({
+                strokeColor: json.color,
+                fillColor: json.color,
+                agriculture: review_form.find('[name=agriculture_name] option:selected').text()
+            });
+            polygonCornfield[j].setMap(map);
+        }
+    }
+
+
+    /*Получение формы для истории*/
+    function show_form_history_add(e){
+        $('.show-form-add-history').slideDown('slow');
+        $('#add_manure_crop').append("<input type='hidden' value='" + e + "' name='pk'>");
+        $('#add_history_crop').find('#id_cornfield [value="'+e+'"]').first().attr("selected", "selected");
+        $('#id_cornfield').hide();
+        $('#add_history_crop').find('label[for=id_cornfield]').hide();
+    }
+
+    $(document).ready(function(){
+        $('.close-table-history').click(function(){
+            $('.table-history').slideUp(); //css("display", "none");
+        });
+
+        $('.close-form-add-history').click(function(){
+            $('.show-form-add-history').slideUp(); //css("display", "none");
+        });
+
+        $('img#back_panel').click(function(){
+             if ($('div#back_panel-div').attr("class") != "back-panel-close"){
+                 $('div#back_panel-div').removeClass('back-panel-open').addClass("back-panel-close");
+                 $('div#back_panel-div').children().css('visibility','hidden');
+                 $('img#back_panel').css('visibility','visible').css('left','5px');
+             } else {
+                 $('div#back_panel-div').removeClass("back-panel-close").addClass("back-panel-open");
+                 $('div#back_panel-div').children().css('visibility','visible');
+                 $('img#back_panel').css('left','375px');
+             }
+             return false;
+         });
+
+        $('#add_agriculture_crop').submit(function(e){
+            append_data(e);
+        });
+
+        $('#add_history_crop').submit(function(e){
+            append_data(e);
+        });
+
+        $('#add_manure_crop').submit(function(e){
+            append_data(e);
+        });
+
+    });
+</script>
+{% endblock %}
+
+{% block body_script %} onload="initialize()" {% endblock %}
+
+
+{% block login_register %}
+<div class="login-form">
+{% if user.is_authenticated %}
+        <a href="{% url logout %}" class="fieldWrapper"> Выйти </a>
+    {% else %}
+        <a href="{% url login %}" class="fieldWrapper"> Войти </a>
+    {% endif %}
+    </div>
+{% endblock %}
+
+
+{% block content %}
+
+<div id="map_canvas"></div>
+
+<div class="back-panel-open" id="back_panel-div">
+    <img src="/selector-icons-open.gif" id="back_panel" alt="Показать информацию по полям">
+    <table class="crop-table" id = "crop">
+        <tr>
+            <td width="40px">Условное обозначение</td>
+            <td width="60px">Название культуры</td>
+            <td width="40px">Площадь</td>
+            <td width="40px">Количество полей</td>
+        </tr>
+    </table>
+</div>
+<div class="full-map-open" id="full-map">
+      <div id="map_canvas_static"></div>
+      <div id="id-button-add-polygon">
+          <form action='{% url add_cornfield %}' method='post' enctype="multipart/form-data">{% csrf_token %}
+              {{ form_add_field }}
+              <input type="submit" value="Добавить поля"></form>
+      </div>
+</div>
+<div class = 'table-history'>
+    <input type="button" class="close-table-history" style="background: url(/icon_deletelink.gif) no-repeat center; height:30px; width: 30px; border: 0px" value="">
+    <table class="table-history">
+        <tr>
+            <td>Год</td>
+            <td>Агрокультуры</td>
+            <td>Урожай</td>
+            <td>Осадки</td>
+            <td>Удобрения</td>
+        </tr>
+    </table>
+
+</div>
+
+
+<div class="show-form-add-history">
+    <input type="button" class="close-form-add-history" style="background: url(/icon_deletelink.gif) no-repeat center; height:30px; width: 30px; border: 0px" value="">
+    <HR width="300px">
+    <form action='{% url add_agriculture %}' method='post' id='add_agriculture_crop'>{% csrf_token %}
+        {{ form_agriculture.as_div  }}
+        <input type='submit' value='Добавить новую культуру'>
+    </form>
+    <HR width="300px">
+    <form action='{% url add_manure %}' method='post' id='add_manure_crop'>{% csrf_token %}
+        {{ form_manure.as_p }}
+    <input type='submit' value='Добавить новое удобрение'></form>
+    <HR width="300px">
+    <form action='{% url add_history %}' method='post' id='add_history_crop'>{% csrf_token %}
+        {{ form_history.as_p|safe }}
+    <input type='submit' value='Добавить историю'></form>
+</div>
+
+
+{% endblock %}
+
+
+
+

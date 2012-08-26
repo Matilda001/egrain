@@ -1,0 +1,24 @@
+﻿{% extends "base.html" %}
+{% block login_register %}
+<div class="login-form-registration">
+<form enctype="multipart/form-data" method="post" action="">{% csrf_token %}
+<table class="register">
+{% for field in form %}
+        <tr>
+            <td>{{ field.label_tag }}</td>
+            <td class="clearfix">{{ field }}
+                {% if field.help_text %}<div class="clearfix">{{ field.help_text }}</div>{% endif %}
+                {% if field.errors %}<div class="myerrors clearfix">{{ field.errors }}</div>{% endif %}
+            </td>
+        </tr>        
+{% endfor %}
+
+</table>
+<input type="submit" class="login-button" value="Зарегистрироваться"  class="clearfix"/>
+</form>
+
+</div>
+
+{% endblock %}
+
+

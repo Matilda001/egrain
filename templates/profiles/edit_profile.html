@@ -1,0 +1,36 @@
+{% extends 'base_layout.html' %}
+{% block topic_text %}
+<form enctype="multipart/form-data" method="post" action="">{% csrf_token %}
+    <div class="profile-form">
+
+        <div class="news-line-right">
+            <div class="news-line-profile-image">
+                {% load loadimage %}
+                {% image profile.avatar %}
+            </div>
+
+            <div class="news-line-profile"><span style="margin-left:5px; margin-bottom: 10px; ">Изображение</span><br><div class="file-input-class">{{ form.avatar }}</div></div>
+        </div>
+
+        <div class="news-line-right">
+            <div class="news-line-profile"> Имя </div><div class="news-line-profile">{{ profile.user.username }}</div>
+        </div>
+        <div class="news-line-right">
+            <div class="news-line-profile"> E-mail </div> <div class="news-line-profile">{{ profile.user.email }}</div>
+        </div>
+        <div class="news-line-right">
+            <div class="news-line-profile">{{ form.password1.label_tag }}</div><div class="news-line-profile">{{ form.password1 }}</div>
+        </div>
+        <div class="news-line-right">
+            <div class="news-line-profile">{{ form.password2.label_tag }}</div><div class="news-line-profile">{{ form.password2 }}</div>
+        </div>
+
+            <br><br><br><br>
+            <input type="submit" value="Сохранить" class="more-message"/>
+
+    </div>
+
+
+ </form>
+
+{% endblock %}
